@@ -7,7 +7,7 @@ class Option(BaseModel):
     text: Optional[str] = Field(default="", description="The text content of the option")
     is_correct: Optional[bool] = False
 
-    # Fallbacks so legacy code referencing 'key' or 'option_text' won't crash
+    # Fallbacks for property lookups
     @property
     def key(self) -> str:
         return self.label or "A"
@@ -23,17 +23,30 @@ class Question(BaseModel):
     question_text: str
     options: List[Option] = []
     correct_answer: Optional[str] = None
+    solution: Optional[str] = None          # <-- ADDED solution field
     explanation: Optional[str] = None
     marks: Optional[str] = None
 
     # Fallbacks for question naming variations
     @property
     def number(self) -> Optional[str]:
-        return self.question_number
+        return self.question_number or ""
 
     @property
     def text(self) -> str:
         return self.question_text
+
+    @property
+    def answer(self) -> Optional[str]:
+        return self.correct_answer
+
+    # Map explanation to solution if one is missing
+    def __getattr__(self, name):
+        if name == "solution":
+            return self.explanation or ""
+        if name == "explanation":
+            return self.solution or ""
+        raise AttributeError(f"'Question' object has no attribute '{name}'")
 
 
 class QuestionPaper(BaseModel):
