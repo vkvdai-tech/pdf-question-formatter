@@ -2,54 +2,51 @@
 import os
 from pypdf import PdfReader
 from openai import OpenAI
-from schema import QuestionPaper
+from schema import QuestionPaper, Question  # Adjust import based on your exact schema
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI()
 
-def extract_raw_text(pdf_file) -> str:
-    """Extracts raw text page by page from an uploaded PDF file."""
+def parse_and_clean_pdf(pdf_file, chunk_size=3):
+    """
+    Extracts text page by page, sends small page batches to OpenAI,
+    and combines all parsed questions into a single QuestionPaper.
+    """
     reader = PdfReader(pdf_file)
-    extracted_text = ""
+    total_pages = len(reader.pages)
     
-    for page_num, page in enumerate(reader.pages, start=1):
-        text = page.extract_text()
-        if text:
-            extracted_text += f"\n--- Page {page_num} ---\n" + text
+    all_questions = []
+    
+    # Process the PDF in small page chunks (e.g., 3 pages at a time)
+    for i in range(0, total_pages, chunk_size):
+        chunk_pages = reader.pages[i:i + chunk_size]
+        chunk_text = "\n".join([page.extract_text() or "" for page in chunk_pages])
+        
+        if not chunk_text.strip():
+            continue
             
-    return extracted_text
+        prompt = f"""
+        Extract all questions and options from the following text into structured format.
+        DO NOT skip, omit, or summarize any questions. Extract EVERY single question completely.
+        
+        TEXT:
+        {chunk_text}
+        """
 
-def parse_and_clean_pdf(raw_text: str) -> QuestionPaper:
-    """Uses LLM with Structured Output to clean, deduplicate, and format raw text."""
-    
-    system_prompt = (
-        "You are an expert exam paper editor and data parser. "
-        "You will receive raw text extracted from a PDF that contains multiple-choice questions. "
-        "The raw text is noisy, contains duplicate text blocks, broken line wraps, and pipe characters (|) "
-        "from bad PDF table extractions.\n\n"
-        "Your Job:\n"
-        "1. Identify distinct questions and clean up duplicated or repeated phrases.\n"
-        "2. Extract the question text clearly without repetitive lines.\n"
-        "3. Parse options (e.g., Option 1, Option 2 or a, b, c) and identify which option is marked as 'Correct' or 'Incorrect'.\n"
-        "4. Extract solutions/explanations if present, as well as positive and negative marks.\n"
-        "5. Output the result strictly following the provided schema."
-    )
+        # Call OpenAI Structured Outputs for this chunk
+        completion = client.beta.chat.completions.parse(
+            model="gpt-4o-mini",  # or gpt-4o
+            messages=[
+                {"role": "system", "content": "You are a precise exam question extractor."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format=QuestionPaper,
+        )
 
-    user_prompt = f"Here is the raw PDF text to clean and structure:\n\n{raw_text}"
+        parsed_chunk = completion.choices[0].message.parsed
+        
+        # Collect questions from this chunk
+        if parsed_chunk and hasattr(parsed_chunk, 'questions'):
+            all_questions.extend(parsed_chunk.questions)
 
-    # Utilizing OpenAI's Structured Output parsing method
-    response = client.beta.chat.completions.parse(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        response_format=QuestionPaper,
-    )
-
-    return response.choices[0].message.parsed
-
-
-# Quick local test block
-if __name__ == "__main__":
-    print("Processor module ready!")
+    # Return a consolidated QuestionPaper object containing all extracted questions
+    return QuestionPaper(questions=all_questions)
