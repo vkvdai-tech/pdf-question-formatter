@@ -6,7 +6,7 @@ from openai import OpenAI
 import streamlit as st
 from schema import QuestionPaper
 
-# Initialize OpenAI Client (using Streamlit Secrets or Environment Variable)
+# Initialize OpenAI Client using Streamlit Secrets
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY"))
 
 EXTRACTION_SYSTEM_PROMPT = """
@@ -54,11 +54,11 @@ def process_chunk(chunk_text: str) -> QuestionPaper:
     return response.choices[0].message.parsed
 
 
-def process_pdf(pdf_file) -> QuestionPaper:
+def process_pdf(pdf_file, chunk_size: int = 3, **kwargs) -> QuestionPaper:
     """
     Main processing loop:
     1. Extracts text from PDF
-    2. Chunks text into 3-page segments
+    2. Chunks text into segments (accepts chunk_size & extra kwargs from app.py)
     3. Batches calls to OpenAI Structured Outputs
     4. Combines results into a single consolidated QuestionPaper object
     """
@@ -66,7 +66,7 @@ def process_pdf(pdf_file) -> QuestionPaper:
     if not pages_text:
         raise ValueError("Could not extract any readable text from the provided PDF.")
 
-    chunks = chunk_pages(pages_text, chunk_size=3)
+    chunks = chunk_pages(pages_text, chunk_size=chunk_size)
     
     combined_questions = []
     paper_title = "Question Paper"
@@ -98,5 +98,7 @@ def process_pdf(pdf_file) -> QuestionPaper:
         title=paper_title,
         questions=combined_questions
     )
-# Alias to match app.py import name
+
+
+# Alias to ensure backwards compatibility with app.py imports
 parse_and_clean_pdf = process_pdf
