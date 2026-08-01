@@ -5,10 +5,11 @@ from typing import List, Optional
 class Option(BaseModel):
     key: str  # e.g., "A", "B", "C", "D"
     text: str
+    is_correct: Optional[bool] = False  # <-- ADD THIS LINE
 
 class Question(BaseModel):
     question_number: Optional[str] = None
-    question_type: Optional[str] = "MCQ"  # <-- ADD THIS LINE
+    question_type: Optional[str] = "MCQ"
     question_text: str
     options: List[Option] = []
     correct_answer: Optional[str] = None
@@ -17,3 +18,4 @@ class Question(BaseModel):
 class QuestionPaper(BaseModel):
     title: Optional[str] = "Question Paper"
     questions: List[Question]
+    
