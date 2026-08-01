@@ -4,9 +4,6 @@ from pypdf import PdfReader
 from openai import OpenAI
 from schema import QuestionPaper
 
-# Load API key from .env file
-load_dotenv()
-
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
