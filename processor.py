@@ -6,7 +6,7 @@ from schema import QuestionPaper, Question  # Adjust import based on your exact 
 
 client = OpenAI()
 
-def parse_and_clean_pdf(pdf_file, chunk_size=3):
+def parse_and_clean_pdf(pdf_file, chunk_size=3,progress_callback=None):
     """
     Extracts text page by page, sends small page batches to OpenAI,
     and combines all parsed questions into a single QuestionPaper.
