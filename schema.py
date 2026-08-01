@@ -8,6 +8,7 @@ class Option(BaseModel):
 
 class Question(BaseModel):
     question_number: Optional[str] = None
+    question_type: Optional[str] = "MCQ"  # <-- ADD THIS LINE
     question_text: str
     options: List[Option] = []
     correct_answer: Optional[str] = None
