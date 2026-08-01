@@ -1,64 +1,100 @@
 # processor.py
-import os
+import json
+from typing import List, Dict, Any
 from pypdf import PdfReader
 from openai import OpenAI
-from schema import QuestionPaper, Question
+import streamlit as st
+from schema import QuestionPaper
 
-client = OpenAI()
+# Initialize OpenAI Client (using Streamlit Secrets or Environment Variable)
+client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY"))
 
-def parse_and_clean_pdf(pdf_file, chunk_size=3, progress_callback=None):
-    """
-    Processes large PDFs in page batches (chunks) to easily handle 100+ pages
-    without exceeding AI context window or output token limits.
-    """
+EXTRACTION_SYSTEM_PROMPT = """
+You are a precise data extraction engine. Your task is to extract all exam questions from the provided text into the structured QuestionPaper schema.
+
+CRITICAL EXTRACTION RULES:
+1. COMPLETE TEXT PRESERVATION: Capture the FULL text of every question. For statement-based questions (e.g., "1. Statement A... 2. Statement B... Which of the statements given above is/are correct?"), you MUST preserve all numbered statements completely in 'question_text'. Never truncate or drop statements.
+2. DEDUPING: If the exact same question block or prompt is repeated twice back-to-back in the raw input text, extract it ONCE cleanly.
+3. PRESERVE ALL QUESTIONS: Extract every single question present in the text sequentially. Do not skip or omit any questions.
+4. OPTION EXTRACTION: Extract options into labels (a, b, c, d or 1, 2, 3, 4) and clean option text. Keep 'is_correct' as true/false if indicated in the input.
+5. SOLUTION/EXPLANATION: Include the complete explanation, solution, or rationale into the 'solution' field.
+"""
+
+def extract_text_from_pdf(pdf_file) -> List[str]:
+    """Reads PDF and returns a list of page texts."""
     reader = PdfReader(pdf_file)
-    total_pages = len(reader.pages)
-    all_questions = []
+    pages_text = []
+    for page in reader.pages:
+        text = page.extract_text()
+        if text:
+            pages_text.append(text)
+    return pages_text
 
-    # Calculate total chunk iterations
-    total_chunks = (total_pages + chunk_size - 1) // chunk_size
 
-    for chunk_index, i in enumerate(range(0, total_pages, chunk_size)):
-        chunk_pages = reader.pages[i:i + chunk_size]
-        chunk_text = "\n".join([page.extract_text() or "" for page in chunk_pages])
+def chunk_pages(pages_text: List[str], chunk_size: int = 3) -> List[str]:
+    """Segments pages into chunks of `chunk_size` (default: 3 pages) to stay within context limits."""
+    chunks = []
+    for i in range(0, len(pages_text), chunk_size):
+        chunk_text = "\n--- PAGE BREAK ---\n".join(pages_text[i:i + chunk_size])
+        chunks.append(chunk_text)
+    return chunks
 
-        # Report progress back to Streamlit
-        if progress_callback:
-            progress = (chunk_index + 1) / total_chunks
-            current_page_end = min(i + chunk_size, total_pages)
-            progress_callback(
-                progress, 
-                f"Processing pages {i + 1} to {current_page_end} of {total_pages}..."
-            )
 
-        # Skip blank/empty pages
-        if not chunk_text.strip():
-            continue
+def process_chunk(chunk_text: str) -> QuestionPaper:
+    """Sends a single chunk to OpenAI gpt-4o-mini using Structured Outputs."""
+    response = client.beta.chat.completions.parse(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "user", "content": f"Extract all questions from the following text:\n\n{chunk_text}"}
+        ],
+        response_format=QuestionPaper,
+        temperature=0.1
+    )
+    return response.choices[0].message.parsed
 
-        prompt = f"""
-        Extract all exam/test questions and options from the following text.
-        CRITICAL: DO NOT skip, summarize, or omit any questions. Extract EVERY question completely.
 
-        TEXT TO EXTRACT FROM:
-        {chunk_text}
-        """
+def process_pdf(pdf_file) -> QuestionPaper:
+    """
+    Main processing loop:
+    1. Extracts text from PDF
+    2. Chunks text into 3-page segments
+    3. Batches calls to OpenAI Structured Outputs
+    4. Combines results into a single consolidated QuestionPaper object
+    """
+    pages_text = extract_text_from_pdf(pdf_file)
+    if not pages_text:
+        raise ValueError("Could not extract any readable text from the provided PDF.")
 
+    chunks = chunk_pages(pages_text, chunk_size=3)
+    
+    combined_questions = []
+    paper_title = "Question Paper"
+
+    # Process each chunk sequentially
+    progress_bar = st.progress(0)
+    total_chunks = len(chunks)
+
+    for idx, chunk in enumerate(chunks):
         try:
-            completion = client.beta.chat.completions.parse(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a precise exam question extractor."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format=QuestionPaper,
-            )
-
-            parsed_chunk = completion.choices[0].message.parsed
-            if parsed_chunk and hasattr(parsed_chunk, 'questions'):
-                all_questions.extend(parsed_chunk.questions)
-
+            parsed_paper = process_chunk(chunk)
+            if parsed_paper and parsed_paper.questions:
+                combined_questions.extend(parsed_paper.questions)
+                if parsed_paper.title and paper_title == "Question Paper":
+                    paper_title = parsed_paper.title
         except Exception as e:
-            print(f"Warning: Failed to process pages {i + 1} to {i + chunk_size}: {e}")
-            continue
+            st.warning(f"Warning: Issue processing chunk {idx + 1}/{total_chunks}: {str(e)}")
+        
+        # Update Streamlit progress bar
+        progress_bar.progress((idx + 1) / total_chunks)
 
-    return QuestionPaper(questions=all_questions)
+    progress_bar.empty()
+
+    # Re-number questions sequentially to ensure continuous Q1, Q2, Q3... numbering
+    for idx, q in enumerate(combined_questions, 1):
+        q.question_number = str(idx)
+
+    return QuestionPaper(
+        title=paper_title,
+        questions=combined_questions
+    )

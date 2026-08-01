@@ -1,6 +1,5 @@
 # pdf_generator.py
 import html
-import re
 from io import BytesIO
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -10,14 +9,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 def safe_str(val):
     if val is None:
         return ""
-    # Strip duplicate lines if raw text was duplicated in input
-    lines = str(val).split('\n')
-    deduped = []
-    for line in lines:
-        line_clean = line.strip()
-        if line_clean and line_clean not in deduped:
-            deduped.append(line_clean)
-    return html.escape(" ".join(deduped))
+    return html.escape(str(val).strip())
 
 def generate_clean_pdf(question_paper):
     buffer = BytesIO()
@@ -31,81 +23,73 @@ def generate_clean_pdf(question_paper):
     )
     
     styles = getSampleStyleSheet()
-    header_style = ParagraphStyle(
-        'HeaderStyle',
-        parent=styles['Normal'],
-        fontSize=10,
-        fontName='Helvetica-Bold',
-        textColor=colors.whitesmoke
-    )
-    cell_style = ParagraphStyle(
-        'CellStyle',
-        parent=styles['Normal'],
-        fontSize=9.5,
-        leading=13
-    )
+    
     label_style = ParagraphStyle(
         'LabelStyle',
         parent=styles['Normal'],
         fontSize=9.5,
         fontName='Helvetica-Bold',
-        textColor=colors.HexColor('#1E293B')
+        textColor=colors.HexColor('#000000')
+    )
+    cell_style = ParagraphStyle(
+        'CellStyle',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=13,
+        textColor=colors.HexColor('#000000')
     )
 
     story = []
     questions = getattr(question_paper, 'questions', []) or []
 
     for idx, q in enumerate(questions, 1):
-        # Extract and sanitize unique question data
+        # Extract text values
         q_text = safe_str(getattr(q, 'question_text', '') or getattr(q, 'text', ''))
-        q_type = safe_str(getattr(q, 'question_type', 'multiple_Choice'))
+        q_type = safe_str(getattr(q, 'question_type', 'multiple_Choice') or 'multiple_Choice')
         solution = safe_str(getattr(q, 'solution', '') or getattr(q, 'explanation', ''))
         
-        # Build Table Grid Rows
+        # Build exact 2-column table structure matching economy pdf
         table_data = [
-            # Header Row
-            [Paragraph(f"Question #{idx}", header_style), Paragraph(f"Type: {q_type}", header_style)],
-            
-            # Question Body Row
             [Paragraph("<b>Question</b>", label_style), Paragraph(q_text, cell_style)],
+            [Paragraph("<b>Type</b>", label_style), Paragraph(q_type, cell_style)],
         ]
 
-        # Add Options cleanly
+        # Append Options
         options = getattr(q, 'options', []) or []
-        for opt in options:
-            lbl = safe_str(getattr(opt, 'label', '') or getattr(opt, 'key', ''))
+        for opt_idx, opt in enumerate(options, 1):
+            lbl = safe_str(getattr(opt, 'label', '') or getattr(opt, 'key', '') or f"Option {opt_idx}")
             txt = safe_str(getattr(opt, 'text', '') or getattr(opt, 'option_text', ''))
-            is_corr = getattr(opt, 'is_correct', False)
-            status = " <font color='green'><b>(Correct)</b></font>" if is_corr else ""
             
+            # Format label column like 'Option 1', 'Option 2' or 'a', 'b'
+            option_label = f"Option {lbl}" if len(lbl) == 1 and lbl.isdigit() else f"Option ({lbl})" if len(lbl) == 1 else lbl
             table_data.append([
-                Paragraph(f"Option ({lbl})", label_style),
-                Paragraph(f"{txt}{status}", cell_style)
+                Paragraph(f"<b>{option_label}</b>", label_style),
+                Paragraph(txt, cell_style)
             ])
 
-        # Solution / Explanation Row
+        # Append Solution Row
         if solution:
             table_data.append([
                 Paragraph("<b>Solution</b>", label_style),
                 Paragraph(solution, cell_style)
             ])
 
-        # Create Table Object
-        # Column 1 = 110px (Fixed Labels), Column 2 = 440px (Dynamic Content)
-        q_table = Table(table_data, colWidths=[110, 440])
-        
-        # Grid Styling
+        # Append Marks Row
+        table_data.append([
+            Paragraph("<b>Marks</b>", label_style),
+            Paragraph("1 &nbsp;&nbsp;&nbsp; 0.33", cell_style)
+        ])
+
+        # Create ReportLab Table (Column 1 = 100px, Column 2 = 450px)
+        q_table = Table(table_data, colWidths=[100, 450])
         q_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#1E293B')), # Dark Header
-            ('TEXTCOLOR', (0, 0), (1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')), # Table border lines
-            ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#F8FAFC')), # Light grey for label column
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#64748B')),
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#F8FAFC')),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
         ]))
 
         story.append(KeepTogether([q_table, Spacer(1, 14)]))
