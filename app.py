@@ -1,7 +1,7 @@
 # app.py
 import streamlit as st
 import io
-from processor import parse_and_clean_pdf
+from processor import process_pdf
 from pdf_generator import generate_clean_pdf
 
 st.set_page_config(page_title="PDF Question Bank Formatter", layout="centered")

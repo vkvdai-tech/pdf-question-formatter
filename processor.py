@@ -98,3 +98,5 @@ def process_pdf(pdf_file) -> QuestionPaper:
         title=paper_title,
         questions=combined_questions
     )
+# Alias to match app.py import name
+parse_and_clean_pdf = process_pdf
