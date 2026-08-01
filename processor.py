@@ -1,6 +1,5 @@
 # processor.py
 import os
-from dotenv import load_dotenv
 from pypdf import PdfReader
 from openai import OpenAI
 from schema import QuestionPaper
